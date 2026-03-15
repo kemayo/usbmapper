@@ -7,7 +7,7 @@ import SwiftUI
 /// Each node occupies a vertical "slot". Leaf nodes get a slot equal to `nodeHeight`.
 /// Non-leaf nodes get a slot equal to the sum of their children's slots (+ gaps between them).
 /// The parent box is centered vertically within its slot, placing it midway between its first
-/// and last child. Edges use right-angle elbow connectors color-coded by connection speed.
+/// and last child. Edges are Bezier S-curves with per-port attachment points, weighted by speed.
 enum FlowLayout {
     static let nodeWidth: CGFloat = 164
     static let nodeHeight: CGFloat = 46     // tall enough for 2 content rows + padding
@@ -25,6 +25,9 @@ enum FlowLayout {
         let from: CGRect
         let to: CGRect
         let color: Color
+        let sourcePortY: CGFloat  // Y of the port dot on from-box's right edge
+        let lineWidth: CGFloat    // stroke weight derived from connection speed
+        let isCableLimited: Bool  // true when child has .speedMismatch status
     }
 
     struct BusLayout: Identifiable {
@@ -66,12 +69,22 @@ enum FlowLayout {
         let headerY = (totalHeight - busHeaderHeight) / 2
         let headerRect = CGRect(x: 0, y: headerY, width: nodeWidth, height: busHeaderHeight)
 
-        // Bus header → each root, blue for Thunderbolt buses
-        for (rootRect, root) in rootRects {
+        // Bus header → each root; ports distributed evenly along the header's right edge
+        let rootN = rootRects.count
+        for (k, (rootRect, root)) in rootRects.enumerated() {
+            let portY = headerRect.minY + CGFloat(k + 1) / CGFloat(rootN + 1) * headerRect.height
             let color: Color = bus.isThunderbolt
-                ? Color.blue.opacity(0.7)
-                : root.actualSpeed.color.opacity(0.7)
-            allEdges.append(Edge(from: headerRect, to: rootRect, color: color))
+                ? Color.blue.opacity(0.85)
+                : root.actualSpeed.color.opacity(0.85)
+            let isCableLimited: Bool
+            if case .speedMismatch = root.bottleneckStatus { isCableLimited = true }
+            else { isCableLimited = false }
+            allEdges.append(Edge(
+                from: headerRect, to: rootRect, color: color,
+                sourcePortY: portY,
+                lineWidth: root.actualSpeed.lineWidth,
+                isCableLimited: isCableLimited
+            ))
         }
 
         let maxX = allNodes.map { $0.rect.maxX }.max() ?? nodeWidth
@@ -106,14 +119,24 @@ enum FlowLayout {
         let childX = x + nodeWidth + hGap
         var childSlotTop = slotTop
 
-        for child in node.children {
+        let childN = node.children.count
+        for (k, child) in node.children.enumerated() {
             let (cNodes, cEdges, cSlot) = layoutSubtree(child, x: childX, slotTop: childSlotTop)
             childNodes.append(contentsOf: cNodes)
             childEdges.append(contentsOf: cEdges)
             if let childRect = cNodes.first?.rect {
+                // Port Y distributed evenly within parent box height (N+1 divisor keeps
+                // dots away from the corners; for N=1 this gives exactly rect.midY)
+                let portY = rect.minY + CGFloat(k + 1) / CGFloat(childN + 1) * rect.height
+                let isCableLimited: Bool
+                if case .speedMismatch = child.bottleneckStatus { isCableLimited = true }
+                else { isCableLimited = false }
                 childEdges.append(Edge(
                     from: rect, to: childRect,
-                    color: child.actualSpeed.color.opacity(0.75)
+                    color: child.actualSpeed.color.opacity(0.85),
+                    sourcePortY: portY,
+                    lineWidth: child.actualSpeed.lineWidth,
+                    isCableLimited: isCableLimited
                 ))
             }
             childSlotTop += cSlot + vGap
@@ -205,23 +228,35 @@ struct BusFlowView: View {
     }
 
     private func drawEdges(in ctx: GraphicsContext) {
-        let style = StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round)
+        let dotRadius: CGFloat = 3.5
+        let cpOffset = FlowLayout.hGap * 0.6   // Bezier tangent — horizontal at both endpoints
+
         for edge in layout.edges {
-            let start = CGPoint(x: edge.from.maxX, y: edge.from.midY)
+            let start = CGPoint(x: edge.from.maxX, y: edge.sourcePortY)
             let end   = CGPoint(x: edge.to.minX,   y: edge.to.midY)
+            let cp1   = CGPoint(x: start.x + cpOffset, y: start.y)
+            let cp2   = CGPoint(x: end.x   - cpOffset, y: end.y)
 
             var path = Path()
             path.move(to: start)
-            if abs(start.y - end.y) < 1 {
-                // Vertically aligned — draw straight horizontal line
-                path.addLine(to: end)
-            } else {
-                let midX = start.x + FlowLayout.hGap / 2
-                path.addLine(to: CGPoint(x: midX, y: start.y))
-                path.addLine(to: CGPoint(x: midX, y: end.y))
-                path.addLine(to: end)
+            path.addCurve(to: end, control1: cp1, control2: cp2)
+
+            if edge.isCableLimited {
+                // Thick red underlay — bleeds out around the speed-colour line as a highlight
+                ctx.stroke(path, with: .color(.red.opacity(0.7)),
+                           style: StrokeStyle(lineWidth: edge.lineWidth + 3,
+                                              lineCap: .round))
             }
-            ctx.stroke(path, with: .color(edge.color), style: style)
+            // Speed-colour line on top — shows which tier it's actually running at
+            ctx.stroke(path, with: .color(edge.color),
+                       style: StrokeStyle(lineWidth: edge.lineWidth,
+                                          lineCap: .round, lineJoin: .round))
+
+            // Port dot on source right edge — drawn after stroke so it sits on top
+            let dotColor = edge.isCableLimited ? Color.red : edge.color
+            let dot = CGRect(x: start.x - dotRadius, y: start.y - dotRadius,
+                             width: dotRadius * 2, height: dotRadius * 2)
+            ctx.fill(Path(ellipseIn: dot), with: .color(dotColor))
         }
     }
 }
