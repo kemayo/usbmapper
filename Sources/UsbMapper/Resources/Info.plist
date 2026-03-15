@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
 	<key>CFBundleIdentifier</key>
-	<string>com.example.UsbMapper</string>
+	<string>org.davidlynch.UsbMapper</string>
 	<key>CFBundleName</key>
 	<string>UsbMapper</string>
 	<key>CFBundleDisplayName</key>

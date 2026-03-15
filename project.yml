@@ -1,0 +1,24 @@
+name: UsbMapper
+options:
+  deploymentTarget:
+    macOS: "13.0"
+targets:
+  UsbMapper:
+    type: application
+    platform: macOS
+    sources:
+      - path: Sources/UsbMapper
+        excludes:
+          - "Resources/Info.plist"
+          - "Resources/cyme"
+      - path: Sources/UsbMapper/Resources/cyme
+        buildPhase: resources
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: org.davidlynch.UsbMapper
+        INFOPLIST_FILE: Sources/UsbMapper/Resources/Info.plist
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        CODE_SIGN_STYLE: Automatic
+        COMBINE_HIDPI_IMAGES: "YES"
+    dependencies:
+      - sdk: IOKit.framework
