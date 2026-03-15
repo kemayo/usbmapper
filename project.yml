@@ -20,5 +20,19 @@ targets:
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         CODE_SIGN_STYLE: Automatic
         COMBINE_HIDPI_IMAGES: "YES"
+        ENABLE_HARDENED_RUNTIME: YES
     dependencies:
       - sdk: IOKit.framework
+    postBuildScripts:
+      - name: Sign bundled cyme with Hardened Runtime
+        script: |
+          CYME="${BUILT_PRODUCTS_DIR}/${CONTENTS_FOLDER_PATH}/Resources/cyme"
+          # Only sign when an identity is set (skips unsigned/test builds)
+          if [[ -f "${CYME}" && -n "${CODE_SIGN_IDENTITY}" && "${CODE_SIGN_IDENTITY}" != "-" ]]; then
+            codesign --force \
+                     --sign "${CODE_SIGN_IDENTITY}" \
+                     --options runtime \
+                     --timestamp \
+                     "${CYME}"
+          fi
+        basedOnDependencyAnalysis: false
