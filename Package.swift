@@ -9,7 +9,10 @@ let package = Package(
             name: "UsbMapper",
             path: "Sources/UsbMapper",
             exclude: ["Resources/Info.plist"],
-            resources: [.copy("Resources/cyme")],
+            resources: [
+                .process("Resources/Assets.xcassets"),
+                .copy("Resources/cyme"),
+            ],
             linkerSettings: [.linkedFramework("IOKit")]
         )
     ]
